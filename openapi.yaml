@@ -1,0 +1,472 @@
+openapi: 3.0.3
+info:
+  title: Retro Records API
+  version: 1.0.0
+  description: API documentation for the Retro Records music store management system.
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development server
+
+paths:
+  /auth/login:
+    post:
+      summary: Employee login
+      description: Checks an employee email and password and returns a JWT token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Missing email or password
+        '401':
+          description: Invalid email or password
+
+  /music/search:
+    get:
+      summary: Search Discogs for music
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Album or artist to search for
+          schema:
+            type: string
+          example: Fleetwood Mac Rumours
+      responses:
+        '200':
+          description: Search results returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MusicSearchResult'
+        '400':
+          description: Search query is missing
+        '401':
+          description: Authentication required
+        '502':
+          description: Problem communicating with Discogs
+
+  /products:
+    get:
+      summary: Get all products
+      responses:
+        '200':
+          description: Product list returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+        '401':
+          description: Authentication required
+
+    post:
+      summary: Add a new product
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created successfully
+        '400':
+          description: Invalid product data
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+
+  /products/{id}:
+    get:
+      summary: Get one product
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Product returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          description: Authentication required
+        '404':
+          description: Product not found
+
+    patch:
+      summary: Update a product
+      description: Admin only.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated successfully
+        '400':
+          description: Invalid product data
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+        '404':
+          description: Product not found
+
+    delete:
+      summary: Delete a product
+      description: Admin only.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Product deleted successfully
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+        '404':
+          description: Product not found
+
+  /customers:
+    get:
+      summary: Get all customers
+      responses:
+        '200':
+          description: Customer list returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Customer'
+        '401':
+          description: Authentication required
+
+    post:
+      summary: Add a new customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Customer created successfully
+        '400':
+          description: Invalid customer data
+        '401':
+          description: Authentication required
+
+  /customers/{id}:
+    get:
+      summary: Get one customer
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Customer returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '401':
+          description: Authentication required
+        '404':
+          description: Customer not found
+
+  /orders:
+    get:
+      summary: Get all orders
+      responses:
+        '200':
+          description: Order list returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+        '401':
+          description: Authentication required
+
+    post:
+      summary: Create an order
+      description: Accepts the order immediately, then RabbitMQ and a worker can process it asynchronously.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '202':
+          description: Order accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAcceptedResponse'
+        '400':
+          description: Invalid order data
+        '401':
+          description: Authentication required
+        '404':
+          description: Customer or product not found
+
+  /orders/{id}:
+    get:
+      summary: Get one order and check its status
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Order returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          description: Authentication required
+        '404':
+          description: Order not found
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      description: Resource ID
+      schema:
+        type: integer
+        minimum: 1
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: manager@retrorecords.com
+        password:
+          type: string
+          format: password
+          example: password123
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1Ni...
+        role:
+          type: string
+          enum: [staff, admin]
+          example: admin
+
+    MusicSearchResult:
+      type: object
+      properties:
+        discogsReleaseId:
+          type: integer
+          example: 12345
+        albumName:
+          type: string
+          example: Rumours
+        artist:
+          type: string
+          example: Fleetwood Mac
+        year:
+          type: integer
+          example: 1977
+        format:
+          type: string
+          example: Vinyl
+
+    Product:
+      type: object
+      properties:
+        productId:
+          type: integer
+          example: 101
+        discogsReleaseId:
+          type: integer
+          example: 12345
+        albumName:
+          type: string
+          example: Rumours
+        artist:
+          type: string
+          example: Fleetwood Mac
+        format:
+          type: string
+          enum: [Vinyl, CD, Cassette]
+          example: Vinyl
+        price:
+          type: number
+          format: double
+          example: 50.00
+        stockQuantity:
+          type: integer
+          example: 10
+
+    CreateProductRequest:
+      type: object
+      required: [discogsReleaseId, albumName, artist, format, price, stockQuantity]
+      properties:
+        discogsReleaseId:
+          type: integer
+          example: 12345
+        albumName:
+          type: string
+          example: Rumours
+        artist:
+          type: string
+          example: Fleetwood Mac
+        format:
+          type: string
+          enum: [Vinyl, CD, Cassette]
+          example: Vinyl
+        price:
+          type: number
+          format: double
+          example: 50.00
+        stockQuantity:
+          type: integer
+          minimum: 0
+          example: 10
+
+    UpdateProductRequest:
+      type: object
+      properties:
+        price:
+          type: number
+          format: double
+          example: 55.00
+        stockQuantity:
+          type: integer
+          minimum: 0
+          example: 8
+
+    Customer:
+      type: object
+      properties:
+        customerId:
+          type: integer
+          example: 201
+        name:
+          type: string
+          example: John Smith
+        email:
+          type: string
+          format: email
+          example: john@email.com
+        phone:
+          type: string
+          example: '0400123456'
+
+    CreateCustomerRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          example: John Smith
+        email:
+          type: string
+          format: email
+          example: john@email.com
+        phone:
+          type: string
+          example: '0400123456'
+
+    OrderItemRequest:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: integer
+          example: 101
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+
+    CreateOrderRequest:
+      type: object
+      required: [customerId, items]
+      properties:
+        customerId:
+          type: integer
+          example: 201
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderItemRequest'
+
+    OrderAcceptedResponse:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          example: 1001
+        status:
+          type: string
+          example: pending
+        message:
+          type: string
+          example: Order accepted
+
+    Order:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          example: 1001
+        customerId:
+          type: integer
+          example: 201
+        status:
+          type: string
+          enum: [pending, processing, completed, cancelled]
+          example: completed
+        totalAmount:
+          type: number
+          format: double
+          example: 50.00
