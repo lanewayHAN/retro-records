@@ -148,6 +148,7 @@ If the external API cannot be reached, Retro Records returns a controlled fallba
 | Supertest | HTTP integration testing |
 | Docker | Application containers |
 | Docker Compose | Multi-container orchestration |
+| Postman | API request collection and manual testing |
 
 ---
 
@@ -156,7 +157,7 @@ If the external API cannot be reached, Retro Records returns a controlled fallba
 ```text
                        ┌─────────────────────┐
                        │       Client        │
-                       │ Swagger / API User  │
+                       │ Swagger / Postman   │
                        └──────────┬──────────┘
                                   │
                                   ▼
@@ -172,7 +173,6 @@ If the external API cannot be reached, Retro Records returns a controlled fallba
                   │ PostgreSQL   │  │ Discogs API  │
                   │   Database   │  │              │
                   └──────────────┘  └──────────────┘
-
                               │
                        order.created
                               │
@@ -193,7 +193,7 @@ If the external API cannot be reached, Retro Records returns a controlled fallba
 
 # Database Design
 
-Retro Records V1 uses three main tables.
+Retro Records V1 uses three main application tables.
 
 ## Users
 
@@ -297,9 +297,7 @@ and rename the copy to:
 .env
 ```
 
-Example values are provided in `.env.example`.
-
-The following variables are required:
+Example configuration:
 
 ```env
 POSTGRES_USER=retro_user
@@ -317,6 +315,8 @@ RABBITMQ_USER=retro_user
 RABBITMQ_PASSWORD=change_me
 RABBITMQ_URL=amqp://retro_user:change_me@localhost:5672
 ```
+
+Replace the `change_me` values with your own local values.
 
 For live Discogs results, replace:
 
@@ -347,7 +347,11 @@ Docker Compose starts:
 - Retro Records API
 - Order Worker
 
-The database schema and demo data are automatically created on the first startup.
+On the first startup, PostgreSQL automatically creates:
+
+- the application database schema
+- demo application data
+- the separate automated test database
 
 ---
 
@@ -388,6 +392,8 @@ Swagger can be used to inspect and execute API requests.
 
 ## Health Check
 
+Primary health endpoint:
+
 ```text
 http://localhost:3000/health
 ```
@@ -423,13 +429,7 @@ If a required dependency is unavailable, the API returns:
 503 Service Unavailable
 ```
 
-with:
-
-```json
-{
-  "status": "degraded"
-}
-```
+with a degraded health status.
 
 ---
 
@@ -458,7 +458,7 @@ order.created
 
 # Demo Accounts
 
-The fresh Docker database contains demo users.
+A fresh Docker database contains the following demo users.
 
 ## Customer
 
@@ -490,7 +490,7 @@ The staff account can be used to test protected product routes.
 
 # Authentication Example
 
-Login:
+Login endpoint:
 
 ```http
 POST /api/auth/login
@@ -519,7 +519,7 @@ Successful response:
 }
 ```
 
-Use the returned token:
+Use the returned token in protected requests:
 
 ```text
 Authorization: Bearer <JWT_TOKEN>
@@ -535,8 +535,6 @@ Authorization: Bearer <JWT_TOKEN>
 POST   /api/auth/login
 ```
 
----
-
 ## Health
 
 ```text
@@ -544,15 +542,11 @@ GET    /health
 GET    /api/health
 ```
 
----
-
 ## Discogs
 
 ```text
 GET    /api/discogs/search?q=nirvana
 ```
-
----
 
 ## Products
 
@@ -567,8 +561,6 @@ DELETE  /api/products/:id
 
 Product write operations require a staff or admin JWT.
 
----
-
 ## Users
 
 ```text
@@ -579,8 +571,6 @@ PUT     /api/users/:id
 PATCH   /api/users/:id
 DELETE  /api/users/:id
 ```
-
----
 
 ## Orders
 
@@ -636,6 +626,29 @@ Example not-found response:
 
 ---
 
+# Request Validation
+
+Request validation is implemented using Zod.
+
+Invalid request bodies return:
+
+```text
+400 Bad Request
+```
+
+Validation is performed before data reaches the repository layer.
+
+Example:
+
+```json
+{
+  "error": "ValidationError",
+  "message": "quantity must be greater than 0"
+}
+```
+
+---
+
 # Testing
 
 The project uses:
@@ -675,82 +688,173 @@ If Windows PowerShell blocks `npm.ps1`, use:
 npm.cmd test
 ```
 
-Tests run sequentially using Jest `--runInBand` because the integration tests share the same PostgreSQL test database.
+Tests run sequentially using Jest `--runInBand` because integration tests share the same PostgreSQL test database.
 
-RabbitMQ publishing is skipped during automated tests so that the test suite does not depend on a running RabbitMQ broker.
+RabbitMQ publishing is skipped during automated tests so the test suite does not depend on a live RabbitMQ broker.
 
 ---
 
 # Test Environment
 
-Tests use:
-
-```text
-.env.test
-```
-
-and a separate PostgreSQL database:
+Automated tests use a separate PostgreSQL database:
 
 ```text
 retro_records_test
 ```
 
-This keeps automated test data separate from development data.
+The test database is automatically created on the first fresh Docker startup by:
 
-The `.env.test` file is excluded from Git.
+```text
+database/init-test.sql
+```
+
+Before running tests for the first time, copy:
+
+```text
+.env.test.example
+```
+
+to:
+
+```text
+.env.test
+```
+
+Then update the PostgreSQL password in `.env.test` so it matches the password configured in `.env`.
+
+Example:
+
+```env
+DATABASE_URL=postgresql://retro_user:YOUR_PASSWORD@localhost:5433/retro_records_test
+NODE_ENV=test
+JWT_SECRET=test_secret_key
+DISCOGS_TOKEN=test_discogs_token
+```
+
+The `.env.test` file is excluded from Git and should not be committed.
+
+Install project dependencies if required:
+
+```powershell
+npm ci
+```
+
+Then run:
+
+```powershell
+npm.cmd test
+```
+
+The test suite creates and resets its own fixtures, keeping automated test data separate from the normal development database.
 
 ---
 
-# Request Validation
+# Test Coverage
 
-Request validation is implemented using Zod.
+Jest automatically collects coverage when the normal test command runs.
 
-Invalid request bodies return:
+Current overall coverage:
 
 ```text
-400 Bad Request
+Statements : 84.41%
+Branches   : 67.32%
+Functions  : 93.02%
+Lines      : 84.33%
 ```
 
-Validation is performed before data reaches the repository layer.
+The project has a global coverage gate configured in:
+
+```text
+jest.config.js
+```
+
+Minimum required coverage:
+
+```text
+Statements >= 80%
+Branches   >= 60%
+Functions  >= 90%
+Lines      >= 80%
+```
+
+If coverage drops below these thresholds, the test command fails.
+
+Generated coverage reports are excluded from Git using:
+
+```text
+coverage/
+```
+
+in `.gitignore`.
+
+---
+
+# Postman Collection
+
+An importable Postman collection is included at:
+
+```text
+postman/Retro-Records.postman_collection.json
+```
+
+To use it:
+
+1. Open Postman.
+2. Click **Import**.
+3. Select `Retro-Records.postman_collection.json`.
+4. Import the collection.
+5. Start the Docker application.
+6. Run the requests against `http://localhost:3000`.
+
+The collection includes requests for:
+
+- Health
+- Authentication
+- Discogs
+- Products
+- Users
+- Orders
+
+It also includes examples for:
+
+- `200 OK`
+- `201 Created`
+- `400 Bad Request`
+- `401 Unauthorized`
+- `403 Forbidden`
+- `404 Not Found`
+
+The staff and customer login requests automatically store JWT tokens as Postman collection variables for protected endpoint testing.
 
 ---
 
 # Application Structure
-
-The application follows a modular architecture.
 
 ```text
 retro-records/
 │
 ├── database/
 │   ├── init.sql
-│   └── seed.sql
+│   ├── seed.sql
+│   └── init-test.sql
 │
 ├── docs/
 │   └── openapi.yaml
 │
+├── postman/
+│   └── Retro-Records.postman_collection.json
+│
 ├── src/
-│   │
 │   ├── auth/
-│   │
 │   ├── discogs/
-│   │
 │   ├── health/
-│   │
 │   ├── integrations/
-│   │
 │   ├── messaging/
-│   │
 │   ├── middleware/
-│   │
 │   ├── orders/
-│   │
 │   ├── products/
-│   │
 │   ├── users/
-│   │
 │   ├── workers/
-│   │
 │   ├── app.js
 │   ├── db.js
 │   ├── server.js
@@ -760,9 +864,11 @@ retro-records/
 │
 ├── .dockerignore
 ├── .env.example
+├── .env.test.example
 ├── .gitignore
 ├── compose.yaml
 ├── Dockerfile
+├── jest.config.js
 ├── package.json
 ├── package-lock.json
 └── README.md
@@ -786,21 +892,21 @@ Repository
 PostgreSQL
 ```
 
-Responsibilities are separated:
+Responsibilities are separated as follows.
 
-### Route
+## Route
 
 Defines HTTP endpoints and middleware.
 
-### Controller
+## Controller
 
 Handles HTTP request and response behaviour.
 
-### Service
+## Service
 
 Contains application and business logic.
 
-### Repository
+## Repository
 
 Handles PostgreSQL queries.
 
@@ -889,6 +995,16 @@ Host port:
 localhost:5433
 ```
 
+On a fresh volume, PostgreSQL executes:
+
+```text
+database/init.sql
+database/seed.sql
+database/init-test.sql
+```
+
+These create the application schema, demo data and separate test database.
+
 ---
 
 ## `rabbitmq`
@@ -921,6 +1037,12 @@ localhost:3000
 
 The API waits for PostgreSQL and RabbitMQ health checks before starting.
 
+The API container also has its own Docker health check using:
+
+```text
+GET /health
+```
+
 ---
 
 ## `worker`
@@ -937,9 +1059,31 @@ events.
 
 ---
 
+# Docker Health Checks
+
+Docker Compose includes health checks for:
+
+- PostgreSQL
+- RabbitMQ
+- Retro Records API
+
+Run:
+
+```powershell
+docker compose ps
+```
+
+A healthy environment should show the main services running, with PostgreSQL, RabbitMQ and the API reporting:
+
+```text
+healthy
+```
+
+---
+
 # Stopping the Application
 
-To stop the containers without deleting persistent data:
+To stop containers without deleting persistent data:
 
 ```powershell
 docker compose down
@@ -951,7 +1095,13 @@ To start them again:
 docker compose up -d
 ```
 
-Do not use `-v` unless you intentionally want to delete PostgreSQL and RabbitMQ Docker volumes.
+Do not use:
+
+```powershell
+docker compose down -v
+```
+
+unless you intentionally want to delete PostgreSQL and RabbitMQ Docker volumes.
 
 ---
 
@@ -967,6 +1117,23 @@ This rebuilds the API and worker images using the latest source code.
 
 ---
 
+# Fresh Installation Behaviour
+
+On a completely fresh Docker volume, the project automatically:
+
+1. Creates the `retro_records` PostgreSQL database.
+2. Creates the application tables.
+3. Loads demo users, products and orders.
+4. Creates the separate `retro_records_test` database.
+5. Creates the test tables.
+6. Starts RabbitMQ.
+7. Starts the API after dependencies are healthy.
+8. Starts the independent order worker.
+
+This allows the application infrastructure to be reproduced from the repository using Docker Compose.
+
+---
+
 # Project Scope
 
 Retro Records V1 focuses on demonstrating:
@@ -977,12 +1144,14 @@ Retro Records V1 focuses on demonstrating:
 - Authentication
 - Authorization
 - Request validation
-- Error handling
+- Centralised error handling
 - Automated testing
+- Test coverage thresholds
 - Event-driven messaging
 - Docker deployment
 - Health monitoring
 - Interactive API documentation
+- Postman API collection
 
 ---
 
@@ -1015,10 +1184,12 @@ allowing a single order to contain multiple products.
 - `.env` is excluded from Git.
 - `.env.test` is excluded from Git.
 - `.env.example` contains placeholders only.
+- `.env.test.example` contains test placeholders only.
 - Password verification uses bcrypt.
 - Protected endpoints use JWT authentication.
 - Product write operations use role-based authorization.
 - Discogs credentials are not stored directly in source code.
+- Real JWT tokens should not be committed or included in screenshots.
 
 ---
 
@@ -1043,4 +1214,4 @@ Swagger documents:
 
 # Retro Records V1
 
-This project was developed as a backend application demonstrating a complete service architecture using PostgreSQL, RabbitMQ, authentication, external API integration, automated testing and containerization.
+This project was developed as a backend application demonstrating a complete service architecture using PostgreSQL, RabbitMQ, JWT authentication, role-based authorization, external API integration, automated testing, test coverage, API documentation and Docker containerization.
