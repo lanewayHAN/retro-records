@@ -1,0 +1,31 @@
+{
+  "name": "retro-records",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "worker": "node src/workers/order.worker.js",
+    "test": "node --env-file=.env.test --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "amqplib": "^2.0.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2"
+  }
+}

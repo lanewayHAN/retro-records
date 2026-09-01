@@ -1,0 +1,1400 @@
+openapi: 3.0.3
+
+info:
+  title: Retro Records API
+  version: 1.0.0
+  description: |
+    Backend API for Retro Records.
+
+    Features:
+    - Product management
+    - User management
+    - Order management
+    - JWT authentication and role-based authorization
+    - Discogs external API integration
+    - RabbitMQ asynchronous order processing
+    - PostgreSQL database
+    - Health monitoring
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local Retro Records API
+
+
+tags:
+  - name: Health
+    description: API health check
+
+  - name: Authentication
+    description: User authentication
+
+  - name: Discogs
+    description: External music metadata integration
+
+  - name: Products
+    description: Product management
+
+  - name: Users
+    description: User management
+
+  - name: Orders
+    description: Order management
+
+
+paths:
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Check API health
+      description: |
+        Checks the Retro Records API and its important dependencies,
+        including PostgreSQL and RabbitMQ.
+
+      responses:
+        "200":
+          description: API and dependencies are healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+              example:
+                status: healthy
+                service: retro-records-api
+                timestamp: "2026-09-01T07:23:00.315Z"
+                dependencies:
+                  postgresql: up
+                  rabbitmq: up
+
+        "503":
+          description: One or more dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+              example:
+                status: degraded
+                service: retro-records-api
+                timestamp: "2026-09-01T07:23:00.315Z"
+                dependencies:
+                  postgresql: up
+                  rabbitmq: down
+
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login and receive a JWT token
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+
+            example:
+              email: sarah@example.com
+              password: password123
+
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "401":
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /discogs/search:
+    get:
+      tags:
+        - Discogs
+      summary: Search Discogs music releases
+      description: |
+        Searches the external Discogs API for music releases.
+
+        Retro Records uses Discogs for music metadata such as:
+        title, year, format, genre, style and cover image.
+
+        If Discogs is temporarily unavailable, the API returns
+        a fallback response instead of crashing.
+
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Album, artist or release search term
+          schema:
+            type: string
+            minLength: 1
+          example: nirvana
+
+      responses:
+        "200":
+          description: Discogs search completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscogsSearchResponse"
+
+              examples:
+                discogsAvailable:
+                  summary: Discogs responded successfully
+                  value:
+                    source: discogs
+                    fallback: false
+                    results:
+                      - discogs_release_id: 367084
+                        title: "Nirvana - Nevermind"
+                        year: 1991
+                        country: US
+                        format:
+                          - Vinyl
+                        genre:
+                          - Rock
+                        style:
+                          - Grunge
+                        cover_image: "https://example.com/image.jpg"
+                        resource_url: "https://api.discogs.com/releases/367084"
+
+                fallback:
+                  summary: Discogs temporarily unavailable
+                  value:
+                    source: fallback
+                    fallback: true
+                    message: Discogs is temporarily unavailable
+                    results: []
+
+        "400":
+          description: Missing or invalid search query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /products:
+    get:
+      tags:
+        - Products
+      summary: Get all products
+
+      responses:
+        "200":
+          description: Product list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+
+
+    post:
+      tags:
+        - Products
+      summary: Create a new product
+      description: Requires a staff or admin JWT token.
+
+      security:
+        - bearerAuth: []
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+
+            example:
+              discogs_release_id: 367084
+              album_name: Nevermind
+              artist: Nirvana
+              format: Vinyl
+              price: 54.95
+              stock_quantity: 6
+
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+        "400":
+          description: Invalid product data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "401":
+          description: Missing or invalid JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "403":
+          description: User does not have permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /products/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParameter"
+
+
+    get:
+      tags:
+        - Products
+      summary: Get one product
+
+      responses:
+        "200":
+          description: Product found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    put:
+      tags:
+        - Products
+      summary: Replace a product
+      description: Requires a staff or admin JWT token.
+
+      security:
+        - bearerAuth: []
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductReplace"
+
+      responses:
+        "200":
+          description: Product replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+        "400":
+          description: Invalid product data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "401":
+          description: Missing or invalid JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "403":
+          description: User does not have permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    patch:
+      tags:
+        - Products
+      summary: Partially update a product
+      description: Requires a staff or admin JWT token.
+
+      security:
+        - bearerAuth: []
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+
+      responses:
+        "200":
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+        "400":
+          description: Invalid product data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "401":
+          description: Missing or invalid JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "403":
+          description: User does not have permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    delete:
+      tags:
+        - Products
+      summary: Delete a product
+      description: Requires a staff or admin JWT token.
+
+      security:
+        - bearerAuth: []
+
+      responses:
+        "204":
+          description: Product deleted successfully
+
+        "401":
+          description: Missing or invalid JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "403":
+          description: User does not have permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /users:
+    get:
+      tags:
+        - Users
+      summary: Get all users
+
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+
+    post:
+      tags:
+        - Users
+      summary: Create a new user
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+        "400":
+          description: Invalid user data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParameter"
+
+
+    get:
+      tags:
+        - Users
+      summary: Get one user
+
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    put:
+      tags:
+        - Users
+      summary: Replace a user
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserReplace"
+
+      responses:
+        "200":
+          description: User replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+        "400":
+          description: Invalid user data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    patch:
+      tags:
+        - Users
+      summary: Partially update a user
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+        "400":
+          description: Invalid user data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    delete:
+      tags:
+        - Users
+      summary: Delete a user
+
+      responses:
+        "204":
+          description: User deleted successfully
+
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /orders:
+    get:
+      tags:
+        - Orders
+      summary: Get all orders
+
+      responses:
+        "200":
+          description: Order list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+
+
+    post:
+      tags:
+        - Orders
+      summary: Create a new order
+      description: |
+        Creates an order in PostgreSQL and publishes an
+        order.created event to RabbitMQ for asynchronous processing.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderCreate"
+
+            example:
+              customer_id: 1
+              created_by: 2
+              product_id: 1
+              quantity: 1
+              status: pending
+              total_amount: 50
+
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+        "400":
+          description: Invalid order data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  /orders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParameter"
+
+
+    get:
+      tags:
+        - Orders
+      summary: Get one order
+
+      responses:
+        "200":
+          description: Order found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    put:
+      tags:
+        - Orders
+      summary: Replace an order
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderReplace"
+
+      responses:
+        "200":
+          description: Order replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+        "400":
+          description: Invalid order data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    patch:
+      tags:
+        - Orders
+      summary: Partially update an order
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderUpdate"
+
+      responses:
+        "200":
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+        "400":
+          description: Invalid order data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+    delete:
+      tags:
+        - Orders
+      summary: Delete an order
+
+      responses:
+        "204":
+          description: Order deleted successfully
+
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+
+  parameters:
+
+    IdParameter:
+      name: id
+      in: path
+      required: true
+      description: Resource ID
+      schema:
+        type: integer
+        minimum: 1
+
+
+  schemas:
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: ValidationError
+
+        message:
+          type: string
+          example: Invalid request data
+
+      required:
+        - error
+        - message
+
+
+    HealthDependencies:
+      type: object
+      properties:
+        postgresql:
+          type: string
+          enum:
+            - up
+            - down
+
+        rabbitmq:
+          type: string
+          enum:
+            - up
+            - down
+
+      required:
+        - postgresql
+        - rabbitmq
+
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+            - degraded
+
+        service:
+          type: string
+          example: retro-records-api
+
+        timestamp:
+          type: string
+          format: date-time
+
+        dependencies:
+          $ref: "#/components/schemas/HealthDependencies"
+
+      required:
+        - status
+        - service
+        - timestamp
+        - dependencies
+
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+
+        password:
+          type: string
+          format: password
+
+      required:
+        - email
+        - password
+
+
+    LoginUser:
+      type: object
+      properties:
+        user_id:
+          type: integer
+
+        name:
+          type: string
+
+        email:
+          type: string
+          format: email
+
+        role:
+          type: string
+          enum:
+            - customer
+            - staff
+            - admin
+
+      required:
+        - user_id
+        - name
+        - email
+        - role
+
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token
+
+        user:
+          $ref: "#/components/schemas/LoginUser"
+
+      required:
+        - token
+        - user
+
+
+    DiscogsRelease:
+      type: object
+      properties:
+        discogs_release_id:
+          type: integer
+          example: 367084
+
+        title:
+          type: string
+          example: "Nirvana - Nevermind"
+
+        year:
+          type: integer
+          nullable: true
+          example: "1991"
+
+        country:
+          type: string
+          nullable: true
+          example: US
+
+        format:
+          type: array
+          items:
+            type: string
+
+        genre:
+          type: array
+          items:
+            type: string
+
+        style:
+          type: array
+          items:
+            type: string
+
+        cover_image:
+          type: string
+          nullable: true
+
+        resource_url:
+          type: string
+          nullable: true
+
+      required:
+        - discogs_release_id
+        - title
+        - format
+        - genre
+        - style
+
+
+    DiscogsSearchResponse:
+      type: object
+      properties:
+        source:
+          type: string
+          enum:
+            - discogs
+            - fallback
+
+        fallback:
+          type: boolean
+
+        message:
+          type: string
+          nullable: true
+
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscogsRelease"
+
+      required:
+        - source
+        - fallback
+        - results
+
+
+    Product:
+      type: object
+      properties:
+        product_id:
+          type: integer
+          example: 1
+
+        discogs_release_id:
+          type: string
+          nullable: true
+          example: "249504"
+
+        album_name:
+          type: string
+          example: Rumours
+
+        artist:
+          type: string
+          example: Fleetwood Mac
+
+        format:
+          type: string
+          example: Vinyl
+
+        price:
+          type: string
+          example: "49.95"
+
+        stock_quantity:
+          type: integer
+          example: 8
+
+      required:
+        - product_id
+        - album_name
+        - artist
+        - format
+        - price
+        - stock_quantity
+
+
+    ProductCreate:
+      type: object
+      properties:
+        discogs_release_id:
+          type: integer
+          nullable: true
+
+        album_name:
+          type: string
+
+        artist:
+          type: string
+
+        format:
+          type: string
+
+        price:
+          type: number
+          format: float
+          minimum: 0
+
+        stock_quantity:
+          type: integer
+          minimum: 0
+
+      required:
+        - album_name
+        - artist
+        - format
+        - price
+        - stock_quantity
+
+
+    ProductReplace:
+      type: object
+      properties:
+        discogs_release_id:
+          type: integer
+          nullable: true
+
+        album_name:
+          type: string
+
+        artist:
+          type: string
+
+        format:
+          type: string
+
+        price:
+          type: number
+          format: float
+          minimum: 0
+
+        stock_quantity:
+          type: integer
+          minimum: 0
+
+      required:
+        - album_name
+        - artist
+        - format
+        - price
+        - stock_quantity
+
+
+    ProductUpdate:
+      type: object
+      properties:
+        discogs_release_id:
+          type: integer
+          nullable: true
+
+        album_name:
+          type: string
+
+        artist:
+          type: string
+
+        format:
+          type: string
+
+        price:
+          type: number
+          format: float
+          minimum: 0
+
+        stock_quantity:
+          type: integer
+          minimum: 0
+
+
+    User:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          example: 1
+
+        name:
+          type: string
+          example: John Customer
+
+        email:
+          type: string
+          format: email
+          example: john@example.com
+
+        phone:
+          type: string
+          nullable: true
+          example: "0400000001"
+
+        role:
+          type: string
+          enum:
+            - customer
+            - staff
+            - admin
+
+      required:
+        - user_id
+        - name
+        - email
+        - role
+
+
+    UserCreate:
+      type: object
+      properties:
+        name:
+          type: string
+
+        email:
+          type: string
+          format: email
+
+        phone:
+          type: string
+          nullable: true
+
+        password_hash:
+          type: string
+          nullable: true
+
+        role:
+          type: string
+          enum:
+            - customer
+            - staff
+            - admin
+
+      required:
+        - name
+        - email
+        - role
+
+
+    UserReplace:
+      type: object
+      properties:
+        name:
+          type: string
+
+        email:
+          type: string
+          format: email
+
+        phone:
+          type: string
+
+        password_hash:
+          type: string
+
+        role:
+          type: string
+          enum:
+            - customer
+            - staff
+            - admin
+
+      required:
+        - name
+        - email
+        - phone
+        - password_hash
+        - role
+
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+
+        email:
+          type: string
+          format: email
+
+        phone:
+          type: string
+          nullable: true
+
+        password_hash:
+          type: string
+          nullable: true
+
+        role:
+          type: string
+          enum:
+            - customer
+            - staff
+            - admin
+
+
+    Order:
+      type: object
+      properties:
+        order_id:
+          type: integer
+          example: 1
+
+        customer_id:
+          type: integer
+          example: 1
+
+        created_by:
+          type: integer
+          nullable: true
+          example: 2
+
+        product_id:
+          type: integer
+          example: 1
+
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+
+        status:
+          type: string
+          enum:
+            - pending
+            - processing
+            - completed
+            - cancelled
+
+        created_at:
+          type: string
+          format: date-time
+
+        total_amount:
+          type: string
+          example: "49.95"
+
+      required:
+        - order_id
+        - customer_id
+        - product_id
+        - quantity
+        - status
+        - total_amount
+
+
+    OrderCreate:
+      type: object
+      properties:
+        customer_id:
+          type: integer
+          minimum: 1
+
+        created_by:
+          type: integer
+          nullable: true
+
+        product_id:
+          type: integer
+          minimum: 1
+
+        quantity:
+          type: integer
+          minimum: 1
+
+        status:
+          type: string
+          enum:
+            - pending
+            - processing
+            - completed
+            - cancelled
+
+        total_amount:
+          type: number
+          format: float
+          minimum: 0
+
+      required:
+        - customer_id
+        - product_id
+        - quantity
+        - status
+        - total_amount
+
+
+    OrderReplace:
+      type: object
+      properties:
+        customer_id:
+          type: integer
+          minimum: 1
+
+        created_by:
+          type: integer
+          nullable: true
+
+        product_id:
+          type: integer
+          minimum: 1
+
+        quantity:
+          type: integer
+          minimum: 1
+
+        status:
+          type: string
+          enum:
+            - pending
+            - processing
+            - completed
+            - cancelled
+
+        total_amount:
+          type: number
+          format: float
+          minimum: 0
+
+      required:
+        - customer_id
+        - product_id
+        - quantity
+        - status
+        - total_amount
+
+
+    OrderUpdate:
+      type: object
+      properties:
+        customer_id:
+          type: integer
+          minimum: 1
+
+        created_by:
+          type: integer
+          nullable: true
+
+        product_id:
+          type: integer
+          minimum: 1
+
+        quantity:
+          type: integer
+          minimum: 1
+
+        status:
+          type: string
+          enum:
+            - pending
+            - processing
+            - completed
+            - cancelled
+
+        total_amount:
+          type: number
+          format: float
+          minimum: 0
